@@ -1,34 +1,54 @@
-.App-logo {
-    height: 40vmin;
-    pointer-events: none;
+@import url('https://fonts.googleapis.com/css2?family=Chivo:wght@400;700;900&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+:root {
+  --gh-bg: #FFFFFF;
+  --gh-surface: #F4F4F5;
+  --gh-border: #E4E4E7;
+  --gh-text: #09090B;
+  --gh-text-2: #52525B;
+  --gh-accent: #002FA7;
+  --gh-accent-2: #FF3333;
 }
 
-@media (prefers-reduced-motion: no-preference) {
-    .App-logo {
-        animation: App-logo-spin infinite 20s linear;
-    }
+html, body, #root, .App {
+  background: var(--gh-bg);
+  color: var(--gh-text);
+  font-family: 'IBM Plex Mono', monospace;
 }
 
-.App-header {
-    background-color: #0f0f10;
-    min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    font-size: calc(10px + 2vmin);
-    color: white;
+.font-display {
+  font-family: 'Chivo', sans-serif;
+  letter-spacing: -0.02em;
 }
 
-.App-link {
-    color: #61dafb;
+.font-mono-data {
+  font-family: 'IBM Plex Mono', monospace;
 }
 
-@keyframes App-logo-spin {
-    from {
-        transform: rotate(0deg);
-    }
-    to {
-        transform: rotate(360deg);
-    }
+/* Custom selection */
+::selection {
+  background: var(--gh-accent);
+  color: #fff;
 }
+
+/* Sharp focus ring */
+.focus-sharp:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px #fff, 0 0 0 4px var(--gh-accent);
+}
+
+/* Skeleton pulse */
+@keyframes gh-pulse {
+  0%, 100% { background-color: #E4E4E7; }
+  50% { background-color: #D4D4D8; }
+}
+.gh-skeleton {
+  animation: gh-pulse 1.4s ease-in-out infinite;
+}
+
+/* Stagger entrance */
+@keyframes gh-fade-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.gh-fade { animation: gh-fade-in 0.35s ease-out both; }

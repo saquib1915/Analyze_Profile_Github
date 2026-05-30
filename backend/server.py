@@ -1,89 +1,146 @@
-from fastapi import FastAPI, APIRouter
+from fastapi import FastAPI, APIRouter, Depends, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
-from starlette.middleware.cors import CORSMiddleware
-from motor.motor_asyncio import AsyncIOMotorClient
+from sqlalchemy.orm import Session
+from sqlalchemy import desc
+from datetime import datetime, timezone, timedelta
+from pathlib import Path
 import os
 import logging
-from pathlib import Path
-from pydantic import BaseModel, Field, ConfigDict
-from typing import List
-import uuid
-from datetime import datetime, timezone
 
+from database import engine, Base, get_db
+from models import Profile, utcnow
+from github_service import fetch_and_analyze
 
 ROOT_DIR = Path(__file__).parent
-load_dotenv(ROOT_DIR / '.env')
+load_dotenv(ROOT_DIR / ".env")
 
-# MongoDB connection
-mongo_url = os.environ['MONGO_URL']
-client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ['DB_NAME']]
+CACHE_TTL_SECONDS = int(os.environ.get("CACHE_TTL_SECONDS", "3600"))
 
-# Create the main app without a prefix
-app = FastAPI()
+# Create tables on startup
+Base.metadata.create_all(bind=engine)
 
-# Create a router with the /api prefix
+app = FastAPI(title="GitHub Profile Analyzer")
 api_router = APIRouter(prefix="/api")
 
+logger = logging.getLogger("github-analyzer")
+logging.basicConfig(level=logging.INFO)
 
-# Define Models
-class StatusCheck(BaseModel):
-    model_config = ConfigDict(extra="ignore")  # Ignore MongoDB's _id field
-    
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    client_name: str
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
-class StatusCheckCreate(BaseModel):
-    client_name: str
+def _profile_with_cache_meta(p: Profile) -> dict:
+    data = p.to_dict()
+    # Compute cache freshness
+    analyzed_at = p.analyzed_at
+    if analyzed_at and analyzed_at.tzinfo is None:
+        analyzed_at = analyzed_at.replace(tzinfo=timezone.utc)
+    age_seconds = (datetime.now(timezone.utc) - analyzed_at).total_seconds() if analyzed_at else None
+    expires_in = max(0, CACHE_TTL_SECONDS - int(age_seconds)) if age_seconds is not None else 0
+    data["cache_age_seconds"] = int(age_seconds) if age_seconds is not None else 0
+    data["cache_expires_in_seconds"] = expires_in
+    data["cache_ttl_seconds"] = CACHE_TTL_SECONDS
+    return data
 
-# Add your routes to the router instead of directly to app
+
 @api_router.get("/")
-async def root():
-    return {"message": "Hello World"}
+def root():
+    return {"service": "GitHub Profile Analyzer", "status": "ok"}
 
-@api_router.post("/status", response_model=StatusCheck)
-async def create_status_check(input: StatusCheckCreate):
-    status_dict = input.model_dump()
-    status_obj = StatusCheck(**status_dict)
-    
-    # Convert to dict and serialize datetime to ISO string for MongoDB
-    doc = status_obj.model_dump()
-    doc['timestamp'] = doc['timestamp'].isoformat()
-    
-    _ = await db.status_checks.insert_one(doc)
-    return status_obj
 
-@api_router.get("/status", response_model=List[StatusCheck])
-async def get_status_checks():
-    # Exclude MongoDB's _id field from the query results
-    status_checks = await db.status_checks.find({}, {"_id": 0}).to_list(1000)
-    
-    # Convert ISO string timestamps back to datetime objects
-    for check in status_checks:
-        if isinstance(check['timestamp'], str):
-            check['timestamp'] = datetime.fromisoformat(check['timestamp'])
-    
-    return status_checks
+@api_router.get("/analyze/{username}")
+async def analyze_user(
+    username: str,
+    force: bool = Query(False, description="Bypass cache and re-fetch from GitHub"),
+    db: Session = Depends(get_db),
+):
+    """Analyze a GitHub user.
 
-# Include the router in the main app
+    Returns cached data if a fresh entry (<= CACHE_TTL_SECONDS) exists,
+    otherwise calls the GitHub API, persists insights to MySQL, and returns them.
+    """
+    username = username.strip()
+    if not username:
+        raise HTTPException(status_code=400, detail="Username is required")
+
+    existing = db.query(Profile).filter(Profile.username == username).first()
+
+    if existing and not force:
+        analyzed_at = existing.analyzed_at
+        if analyzed_at and analyzed_at.tzinfo is None:
+            analyzed_at = analyzed_at.replace(tzinfo=timezone.utc)
+        age = (datetime.now(timezone.utc) - analyzed_at).total_seconds()
+        if age < CACHE_TTL_SECONDS:
+            data = _profile_with_cache_meta(existing)
+            data["cached"] = True
+            return data
+
+    # Fetch fresh data
+    insights = await fetch_and_analyze(username)
+
+    if existing:
+        for k, v in insights.items():
+            setattr(existing, k, v)
+        existing.analyzed_at = utcnow()
+        profile = existing
+    else:
+        profile = Profile(**insights)
+        profile.analyzed_at = utcnow()
+        db.add(profile)
+
+    db.commit()
+    db.refresh(profile)
+
+    data = _profile_with_cache_meta(profile)
+    data["cached"] = False
+    return data
+
+
+@api_router.get("/profile/{username}")
+def get_profile(username: str, db: Session = Depends(get_db)):
+    """Get a previously analyzed profile from the database (no GitHub call)."""
+    profile = db.query(Profile).filter(Profile.username == username).first()
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not analyzed yet")
+    return _profile_with_cache_meta(profile)
+
+
+@api_router.get("/history")
+def get_history(limit: int = Query(10, ge=1, le=50), db: Session = Depends(get_db)):
+    """List recently analyzed profiles."""
+    profiles = (
+        db.query(Profile)
+        .order_by(desc(Profile.analyzed_at))
+        .limit(limit)
+        .all()
+    )
+    return [
+        {
+            "username": p.username,
+            "name": p.name,
+            "avatar_url": p.avatar_url,
+            "total_stars": p.total_stars,
+            "public_repos": p.public_repos,
+            "analyzed_at": p.analyzed_at.isoformat() if p.analyzed_at else None,
+        }
+        for p in profiles
+    ]
+
+
+@api_router.delete("/profile/{username}")
+def delete_profile(username: str, db: Session = Depends(get_db)):
+    profile = db.query(Profile).filter(Profile.username == username).first()
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    db.delete(profile)
+    db.commit()
+    return {"deleted": username}
+
+
 app.include_router(api_router)
 
 app.add_middleware(
     CORSMiddleware,
+    allow_origins=os.environ.get("CORS_ORIGINS", "*").split(","),
     allow_credentials=True,
-    allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
-
-@app.on_event("shutdown")
-async def shutdown_db_client():
-    client.close()
