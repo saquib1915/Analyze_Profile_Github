@@ -1,0 +1,81 @@
+{
+  "theme": "light",
+  "archetype": "4 (Swiss & High-Contrast)",
+  "emotional_tone": "Authority, clarity, objective, rigid, technical",
+  "typography": {
+    "fonts": {
+      "headings": "Chivo, sans-serif",
+      "body": "IBM Plex Mono, monospace",
+      "data": "IBM Plex Mono, monospace"
+    },
+    "rules": {
+      "h1": "text-4xl sm:text-5xl font-black tracking-tighter leading-none",
+      "h2": "text-2xl sm:text-3xl font-bold tracking-tight",
+      "h3": "text-xl sm:text-2xl font-bold tracking-tight",
+      "body": "text-base leading-relaxed font-normal",
+      "labels": "text-xs font-bold uppercase tracking-[0.2em] text-gray-500",
+      "stats": "text-3xl font-bold tracking-tight",
+      "pairing_strategy": "Radical weight contrast. Headings are massive and bold (Chivo), body and data are stark, structured monospace (IBM Plex Mono)."
+    },
+    "installation_commands": "Use Google Fonts for Chivo and IBM Plex Mono"
+  },
+  "colors": {
+    "background": "#FFFFFF",
+    "surface": "#F4F4F5",
+    "border": "#E4E4E7",
+    "text_primary": "#09090B",
+    "text_secondary": "#52525B",
+    "accent_primary": "#002FA7",
+    "accent_secondary": "#FF3333",
+    "success": "#34C759",
+    "warning": "#FFCC00",
+    "rules": {
+      "contrast": "Minimum 4.5:1 for standard text, use APCA guidelines.",
+      "tints": "Never use pure #000000 or #808080. Greys are slightly tinted with cool tones.",
+      "hover": "Explicit hover states. Active items must be highly visible (e.g., text changes to #002FA7 on hover or background changes to #F4F4F5)."
+    }
+  },
+  "layout_and_spacing": {
+    "spacing_scale": "p-1, p-2, p-4, p-6, p-8, p-12. Generous padding inside bordered containers.",
+    "grid_strategy": {
+      "name": "The 'Control Room' Grid",
+      "base": "grid-cols-1 md:grid-cols-4",
+      "gap": "gap-px bg-gray-200",
+      "rules": "Use a border-collapse style layout where possible, or tight gaps (gap-4) with strict 1px borders. Every pixel must be utilized. No jagged bottoms."
+    },
+    "alignment": "Strict left-alignment for all data, tables, and text. Optical alignment for icons."
+  },
+  "components": {
+    "cards": "Flat background (White or #F4F4F5), sharp edges (rounded-none), 1px solid border (border-gray-200). NO shadows. On hover: border-gray-400, no lift.",
+    "buttons": "Rectangular, sharp edges. Primary: bg-[#002FA7] text-white hover:bg-[#002080]. Secondary: bg-white border border-gray-200 text-[#09090B] hover:bg-gray-100.",
+    "inputs": "Sharp edges (rounded-none), 1px border. Focus state: ring-2 ring-[#002FA7] ring-offset-2 ring-offset-white.",
+    "charts": "Recharts. Use sharp angles, no rounded corners on bars. Custom tooltip with sharp borders and mono font. Monochrome or high-contrast palette for pie/bar charts (e.g., #002FA7, #335CFF, #668AFF, #99B8FF).",
+    "icons": "lucide-react. Use 1.5x scale (24px) for emphasis, sharp stroke widths (1.5 or 2).",
+    "history_sidebar": "Left sidebar on desktop (col-span-1), sticky. List of recent users with stark hover states.",
+    "cache_indicator": "Small badge: border border-[#002FA7] text-[#002FA7] text-xs px-2 py-1 uppercase tracking-widest."
+  },
+  "motion": {
+    "hover": "Instant or very fast transitions (100ms) for a snappy, technical feel.",
+    "page_load": "Staggered fade-in (framer-motion) for grid items, moving from top-left to bottom-right.",
+    "loading_skeletons": "Sharp rectangular blocks pulsing with 10% grey to 20% grey. No rounded corners."
+  },
+  "media": {
+    "image_urls": {
+      "empty_state_bg": {
+        "url": "https://static.prod-images.emergentagent.com/jobs/fb321db1-d487-4875-aed3-c133bacc451c/images/dbe43b25f6d4b72d9a68035b8d5e36e6131d99021606f9e0e5b34045c074da82.png",
+        "description": "A minimalist, high-contrast abstract technical background.",
+        "usage": "Use this as a faint background image (opacity-20 or grayscale) for the empty state when no user has been searched yet."
+      }
+    }
+  },
+  "instructions_to_main_agent": [
+    "Install and configure Google Fonts for 'Chivo' (400, 700, 900) and 'IBM Plex Mono' (400, 600) in index.html.",
+    "Implement a 2-column layout on desktop: Left sidebar (w-64) for 'Search' and 'Recent History'. Main area for the dashboard.",
+    "The main dashboard should follow 'Control Room' grid layout: top row for Profile Overview (span full), next row for 4 stat widgets (span 1 each), bottom area for 'Top 5 Repos' and 'Languages Chart'.",
+    "All containers must have 'rounded-none', 'border', 'border-gray-200'.",
+    "Use 'lucide-react' for icons. Do NOT use placeholder text or generic avatars; use GitHub's API avatar URL.",
+    "Implement 'data-testid' on all interactive elements (e.g., data-testid='search-input', data-testid='submit-button', data-testid='repo-link').",
+    "Use Recharts for the languages distribution chart (bar or pie). Restrict colors to high-contrast blues and greys.",
+    "In the empty state, use the 'empty_state_bg' image as a background with an overlay, and center a large search input."
+  ]
+}
