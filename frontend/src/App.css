@@ -1,5 +1,17 @@
 @import url('https://fonts.googleapis.com/css2?family=Chivo:wght@400;700;900&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
 
+/* Suppress platform-injected "Made with Emergent" badge variants */
+#emergent-badge,
+a[href*="emergent.sh"][href*="utm_source=emergent-badge"],
+a[href*="emergent-badge"],
+[id^="emergent-badge"],
+[class*="emergent-badge"] {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
 :root {
   --gh-bg: #FFFFFF;
   --gh-surface: #F4F4F5;
