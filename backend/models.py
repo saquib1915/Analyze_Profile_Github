@@ -1,10 +1,13 @@
 """SQLAlchemy ORM models for GitHub profile insights."""
 from datetime import datetime, timezone
-from sqlalchemy import Column, Integer, String, Text, DateTime, JSON, Index
+from typing import Any, Dict
+
+from sqlalchemy import Column, DateTime, Index, Integer, JSON, String, Text
+
 from database import Base
 
 
-def utcnow():
+def utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
@@ -51,7 +54,7 @@ class Profile(Base):
         Index("ix_profiles_analyzed_at", "analyzed_at"),
     )
 
-    def to_dict(self):
+    def to_dict(self) -> Dict[str, Any]:
         return {
             "id": self.id,
             "username": self.username,

@@ -2,6 +2,13 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 
 
 const PALETTE = ["#002FA7", "#1F4ABF", "#3D66D7", "#5C81EF", "#7B9DFF", "#9AB9FF", "#B9D5FF", "#D8E0FF"];
 
+// Hoisted to avoid creating new object references on every render
+const CHART_MARGIN = { top: 4, right: 16, left: 0, bottom: 4 };
+const X_TICK = { fontFamily: "IBM Plex Mono", fontSize: 11, fill: "#52525B" };
+const Y_TICK = { fontFamily: "IBM Plex Mono", fontSize: 11, fill: "#09090B" };
+const AXIS_LINE = { stroke: "#E4E4E7" };
+const TOOLTIP_CURSOR = { fill: "#F4F4F5" };
+
 const CustomTooltip = ({ active, payload }) => {
   if (!active || !payload?.length) return null;
   return (
@@ -28,26 +35,26 @@ export default function LanguagesChart({ languages }) {
       ) : (
         <div className="flex-1 min-h-[280px]" data-testid="languages-chart-container">
           <ResponsiveContainer width="100%" height={Math.max(280, data.length * 36)}>
-            <BarChart data={data} layout="vertical" margin={{ top: 4, right: 16, left: 0, bottom: 4 }}>
+            <BarChart data={data} layout="vertical" margin={CHART_MARGIN}>
               <XAxis
                 type="number"
-                tick={{ fontFamily: "IBM Plex Mono", fontSize: 11, fill: "#52525B" }}
-                axisLine={{ stroke: "#E4E4E7" }}
+                tick={X_TICK}
+                axisLine={AXIS_LINE}
                 tickLine={false}
                 allowDecimals={false}
               />
               <YAxis
                 type="category"
                 dataKey="language"
-                tick={{ fontFamily: "IBM Plex Mono", fontSize: 11, fill: "#09090B" }}
-                axisLine={{ stroke: "#E4E4E7" }}
+                tick={Y_TICK}
+                axisLine={AXIS_LINE}
                 tickLine={false}
                 width={90}
               />
-              <Tooltip content={<CustomTooltip />} cursor={{ fill: "#F4F4F5" }} />
+              <Tooltip content={<CustomTooltip />} cursor={TOOLTIP_CURSOR} />
               <Bar dataKey="count" radius={0}>
-                {data.map((_, i) => (
-                  <Cell key={i} fill={PALETTE[i % PALETTE.length]} />
+                {data.map((d) => (
+                  <Cell key={d.language} fill={PALETTE[data.indexOf(d) % PALETTE.length]} />
                 ))}
               </Bar>
             </BarChart>

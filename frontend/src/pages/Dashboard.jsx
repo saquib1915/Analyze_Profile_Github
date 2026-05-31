@@ -22,8 +22,9 @@ export default function Dashboard() {
     try {
       const data = await fetchHistory(15);
       setHistory(data);
-    } catch (e) {
-      // history is non-critical
+    } catch (err) {
+      // history is non-critical; log for diagnostics but don't surface to user
+      console.error("Failed to load history", err);
     }
   }, []);
 
