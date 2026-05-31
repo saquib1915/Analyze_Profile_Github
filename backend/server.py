@@ -1,24 +1,20 @@
-from fastapi import FastAPI, APIRouter, Depends, HTTPException, Query
-from fastapi.middleware.cors import CORSMiddleware
-from dotenv import load_dotenv
-from sqlalchemy.orm import Session
-from sqlalchemy import desc
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from pathlib import Path
-import os
 import logging
+import os
 
-from database import engine, Base, get_db
-from models import Profile, utcnow
+from dotenv import load_dotenv
+from fastapi import APIRouter, FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
+
+from database import profiles_collection
 from github_service import fetch_and_analyze
+from models import Profile, utcnow_iso
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
 
 CACHE_TTL_SECONDS = int(os.environ.get("CACHE_TTL_SECONDS", "3600"))
-
-# Create tables on startup
-Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="GitHub Profile Analyzer")
 api_router = APIRouter(prefix="/api")
@@ -27,111 +23,108 @@ logger = logging.getLogger("github-analyzer")
 logging.basicConfig(level=logging.INFO)
 
 
-def _profile_with_cache_meta(p: Profile) -> dict:
-    data = p.to_dict()
-    # Compute cache freshness
-    analyzed_at = p.analyzed_at
-    if analyzed_at and analyzed_at.tzinfo is None:
-        analyzed_at = analyzed_at.replace(tzinfo=timezone.utc)
-    age_seconds = (datetime.now(timezone.utc) - analyzed_at).total_seconds() if analyzed_at else None
-    expires_in = max(0, CACHE_TTL_SECONDS - int(age_seconds)) if age_seconds is not None else 0
-    data["cache_age_seconds"] = int(age_seconds) if age_seconds is not None else 0
-    data["cache_expires_in_seconds"] = expires_in
-    data["cache_ttl_seconds"] = CACHE_TTL_SECONDS
-    return data
+def _strip_mongo_id(doc: dict) -> dict:
+    """Remove MongoDB's internal _id field from a document."""
+    if doc and "_id" in doc:
+        doc = dict(doc)
+        doc.pop("_id", None)
+    return doc
+
+
+def _with_cache_meta(doc: dict) -> dict:
+    """Attach cache age / expiry metadata to the response."""
+    analyzed_at_str = doc.get("analyzed_at")
+    age_seconds = 0
+    if analyzed_at_str:
+        try:
+            analyzed_at = datetime.fromisoformat(analyzed_at_str)
+            if analyzed_at.tzinfo is None:
+                analyzed_at = analyzed_at.replace(tzinfo=timezone.utc)
+            age_seconds = int((datetime.now(timezone.utc) - analyzed_at).total_seconds())
+        except ValueError:
+            age_seconds = 0
+    doc["cache_age_seconds"] = age_seconds
+    doc["cache_expires_in_seconds"] = max(0, CACHE_TTL_SECONDS - age_seconds)
+    doc["cache_ttl_seconds"] = CACHE_TTL_SECONDS
+    return doc
 
 
 @api_router.get("/")
-def root():
+async def root():
     return {"service": "GitHub Profile Analyzer", "status": "ok"}
 
 
 @api_router.get("/analyze/{username}")
-async def analyze_user(
-    username: str,
-    force: bool = Query(False, description="Bypass cache and re-fetch from GitHub"),
-    db: Session = Depends(get_db),
-):
-    """Analyze a GitHub user.
-
-    Returns cached data if a fresh entry (<= CACHE_TTL_SECONDS) exists,
-    otherwise calls the GitHub API, persists insights to MySQL, and returns them.
-    """
+async def analyze_user(username: str, force: bool = Query(False)):
+    """Analyze a GitHub user. Cached for CACHE_TTL_SECONDS in MongoDB."""
     username = username.strip()
     if not username:
         raise HTTPException(status_code=400, detail="Username is required")
 
-    existing = db.query(Profile).filter(Profile.username == username).first()
+    existing = await profiles_collection.find_one({"username": username})
 
     if existing and not force:
-        analyzed_at = existing.analyzed_at
-        if analyzed_at and analyzed_at.tzinfo is None:
-            analyzed_at = analyzed_at.replace(tzinfo=timezone.utc)
-        age = (datetime.now(timezone.utc) - analyzed_at).total_seconds()
-        if age < CACHE_TTL_SECONDS:
-            data = _profile_with_cache_meta(existing)
-            data["cached"] = True
-            return data
+        existing = _strip_mongo_id(existing)
+        analyzed_at_str = existing.get("analyzed_at")
+        if analyzed_at_str:
+            try:
+                analyzed_at = datetime.fromisoformat(analyzed_at_str)
+                if analyzed_at.tzinfo is None:
+                    analyzed_at = analyzed_at.replace(tzinfo=timezone.utc)
+                age = (datetime.now(timezone.utc) - analyzed_at).total_seconds()
+                if age < CACHE_TTL_SECONDS:
+                    data = _with_cache_meta(existing)
+                    data["cached"] = True
+                    return data
+            except ValueError:
+                pass  # treat as stale, fall through to refresh
 
-    # Fetch fresh data
+    # Fetch fresh data from GitHub
     insights = await fetch_and_analyze(username)
+    insights["analyzed_at"] = utcnow_iso()
 
+    # Build a validated Profile (preserves existing id if present, else creates one)
     if existing:
-        for k, v in insights.items():
-            setattr(existing, k, v)
-        existing.analyzed_at = utcnow()
-        profile = existing
-    else:
-        profile = Profile(**insights)
-        profile.analyzed_at = utcnow()
-        db.add(profile)
+        insights["id"] = existing.get("id")
+    profile = Profile(**insights)
+    doc = profile.model_dump()
 
-    db.commit()
-    db.refresh(profile)
+    # Upsert by username
+    await profiles_collection.update_one(
+        {"username": username},
+        {"$set": doc},
+        upsert=True,
+    )
 
-    data = _profile_with_cache_meta(profile)
+    data = _with_cache_meta(doc)
     data["cached"] = False
     return data
 
 
 @api_router.get("/profile/{username}")
-def get_profile(username: str, db: Session = Depends(get_db)):
-    """Get a previously analyzed profile from the database (no GitHub call)."""
-    profile = db.query(Profile).filter(Profile.username == username).first()
-    if not profile:
+async def get_profile(username: str):
+    """Read a previously analyzed profile from MongoDB (no GitHub call)."""
+    doc = await profiles_collection.find_one({"username": username})
+    if not doc:
         raise HTTPException(status_code=404, detail="Profile not analyzed yet")
-    return _profile_with_cache_meta(profile)
+    return _with_cache_meta(_strip_mongo_id(doc))
 
 
 @api_router.get("/history")
-def get_history(limit: int = Query(10, ge=1, le=50), db: Session = Depends(get_db)):
+async def get_history(limit: int = Query(10, ge=1, le=50)):
     """List recently analyzed profiles."""
-    profiles = (
-        db.query(Profile)
-        .order_by(desc(Profile.analyzed_at))
-        .limit(limit)
-        .all()
-    )
-    return [
-        {
-            "username": p.username,
-            "name": p.name,
-            "avatar_url": p.avatar_url,
-            "total_stars": p.total_stars,
-            "public_repos": p.public_repos,
-            "analyzed_at": p.analyzed_at.isoformat() if p.analyzed_at else None,
-        }
-        for p in profiles
-    ]
+    cursor = profiles_collection.find(
+        {},
+        {"_id": 0, "username": 1, "name": 1, "avatar_url": 1, "total_stars": 1, "public_repos": 1, "analyzed_at": 1},
+    ).sort("analyzed_at", -1).limit(limit)
+    return await cursor.to_list(length=limit)
 
 
 @api_router.delete("/profile/{username}")
-def delete_profile(username: str, db: Session = Depends(get_db)):
-    profile = db.query(Profile).filter(Profile.username == username).first()
-    if not profile:
+async def delete_profile(username: str):
+    result = await profiles_collection.delete_one({"username": username})
+    if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Profile not found")
-    db.delete(profile)
-    db.commit()
     return {"deleted": username}
 
 
@@ -144,3 +137,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.on_event("startup")
+async def create_indexes():
+    """Ensure a unique index on username and a sort index on analyzed_at."""
+    await profiles_collection.create_index("username", unique=True)
+    await profiles_collection.create_index([("analyzed_at", -1)])

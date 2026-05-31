@@ -1,31 +1,17 @@
-"""MySQL database setup using SQLAlchemy."""
+"""MongoDB connection setup using Motor (async)."""
 import os
 from pathlib import Path
-from typing import Generator
 
 from dotenv import load_dotenv
-from sqlalchemy import create_engine
-from sqlalchemy.engine import Engine
-from sqlalchemy.orm import Session, sessionmaker, declarative_base
+from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 
 load_dotenv(Path(__file__).parent / ".env")
 
-MYSQL_URL: str = os.environ["MYSQL_URL"]
+MONGO_URL: str = os.environ["MONGO_URL"]
+DB_NAME: str = os.environ["DB_NAME"]
 
-engine: Engine = create_engine(
-    MYSQL_URL,
-    pool_pre_ping=True,
-    pool_recycle=3600,
-    echo=False,
-)
+client: AsyncIOMotorClient = AsyncIOMotorClient(MONGO_URL)
+db: AsyncIOMotorDatabase = client[DB_NAME]
 
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-Base = declarative_base()
-
-
-def get_db() -> Generator[Session, None, None]:
-    db: Session = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+# Collection handle
+profiles_collection = db["profiles"]
